@@ -1,0 +1,20 @@
+# default: on
+# description: thp-ftpd calls the generic thpsvcs with param "ftp",
+#	resulting in an ftpd emulation.
+
+service thp-pasv
+{
+	type			= UNLISTED
+	socket_type		= stream
+	protocol		= tcp
+	port			= 33701
+	wait			= no
+	user			= nobody
+	server			= /usr/local/thp/logthis
+	server_args		= nullresp
+	nice			= 10
+	disable			= yes
+        instances               = 1
+	per_source		= 1
+
+}

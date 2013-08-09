@@ -1,0 +1,20 @@
+# default: off
+# description:	A generic listener that calls a logging script to 
+#		record all data (keystrokes, autoroot scripts, etc.)
+#		Be sure to change the diable line, only if ye be men 
+#		of valor.
+
+service thp
+{
+	type			= UNLISTED
+	socket_type		= stream
+	wait			= no
+	user			= nobody
+	protocol		= tcp
+	server			= /usr/local/thp/logthis
+        server_args             = shell
+	port			= 6635
+	disable 		= yes
+	instances		= 10
+	per_source		= 1
+}

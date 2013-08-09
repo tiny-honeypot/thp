@@ -1,0 +1,78 @@
+0.4.6 - Enhanced shell.pl to include a working directory array, makes pwd 
+and cd work. Added wget, more flexible uname (with -a, -s, -m, -v), w, and 
+support for semicolon separated command list.
+
+0.4.5 (not released) - Added Time::HiRes as the best method of pulling good 
+timestamps. Moved thpfunc.pl into ~thp/lib. Improvements to iptables script, 
+primarily to fix a firewall logging bug.
+Chris Corella : Added (thp.conf)$uname mostly to simulate how easy it is to 
+add shell like capabilities. Added (shell.pl) select LOG;$|=1; to set LOG to
+currently selected output filehandler, and flush buffer on all PRINT 
+statements to LOG. Added (shell.pl) uname -a, nad whoami functionality, see 
+first comment. Added (all handlers) select LOG; $|=1; code
+
+0.4.4 - Lots of changes here! Capture logs now include src address & port
+of attacker. Selectable in the config file, capture log entries on a 
+single-line, syslog-style, suitable for machine parsing. Check the comments
+for certain implications of choosing this option.
+I changed the directory layout a bit with this release. In the $thpdir/lib
+directory are the individual functions libs, as well as other response
+files.  Http.pl is completely rewritten, with the goal of rfc2616 compliance 
+whenever possible. It includes errors 414, 501, 400 & 414, correctly built
+http return headers for several file types, chameleon mode - to change its
+responses (if turned on) to respond like an IIS machine when an attacker
+requests certain types of resources, and several other features. It is 
+useable (if you are a little deranged) as a lightweight webserver with a
+flat directory structure.
+
+0.4.3-2 - adjusted xinetd.d file port numbers & removed o-x on conf files
+(pr0ps to Bill Scherr), added GOODNET & GOODSVCS to INPUT chain, added a 
+section to iptables.rules to allow a multi-homed system to trust either an
+entire interface, or just a trusted network. Added a test to bomb out if
+someone accidentaly runs iptables.rules as-is on a machine that is a router.
+Fixed escapes & array references in ftp() that were causing some versions 
+of Perl to complain.
+
+0.4.3-1 - Fixed extra shell prompt on exit, added GPL blurb to all files 
+(thanks to Scot Wilcoxon for pointing this out), removed duplicate xinetd.d
+ files from the tarball (sorry folks), iptables script requires less post-
+install tweaking for hpot_svcs, moved port range for listeners to 40k+ to 
+avoid conflicts with fakerpc, several other little tweaks & bugfixes.
+
+0.4.3 - Added session timeouts, simple http emul, pid on caplog start line
+ (you can now easily correlate with xinetd logging), xinetd per-source lim
+its by default.
+
+0.4.2-2 - Tweaked ftp some more, added a thp.conf switch to allow genuine
+data connections for ftp, thus STOR functions and deposits the file(s) 
+uploaded into the hpot directory. LIST & RETR just get junk via greetbin. 
+Provided for a silent listener (no prompt or greeting). Various 
+housekeeping. 
+
+0.4.2-1 - Tweaked ftp a bit, pasv, port, list, retr now do something.
+
+0.4.2 - Added an ftp responder in thpfunc.pl. Improved session naming by 
+using the syscall gettimeofday and concatenating seconds & usecs in hex, 
+with a fallback to the old method. Added a nullresponder sub to 
+thpfunc.pl.
+
+0.4.1 - Due to a piss poor job of input validation (none), thus the ease 
+with which an intruder could execute arbitrary commands as user "nobody", 
+I have begun a rewrite in Perl, taking a little better care in examining (
+or not evaluating at all) any external data exchanges. Broke things up 
+into thp.cfg (config stuff), thpfunc.pl (functions lib), and relegated 
+logthis to dealing with start/stop logging & calling the service-specific 
+subroutines (not there yet).
+
+0.3.2 - Extended iptables script to simplify multiple hpot_svcs.  
+Clarified and enhanced iptables support for permitted (trusted) networks 
+and/or services. Started playing with thpsvcs, to provide believeable 
+responses to simple initial commands. ftp is the only one in there now, 
+more to come.
+
+0.3.1 - Some xinetds don't like the config file name xinetd.hpot, so I 
+renamed it to simply hpot. Added the necessary iptables lines to allow 
+local -> external & return trip traffic.  Fixed README (yeah, right).
+
+0.3 - First real build.  Prior versions were local cob-jobs. I figure 0.3 
+is about right.

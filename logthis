@@ -1,0 +1,58 @@
+#!/usr/bin/perl -X
+
+package thp;
+# /usr/local/thp/logthis version 0.4.4
+# A Perl script to log input from nonspecified tcp connections 
+# that are managed by xinetd/inetd.  A component of the thp
+# honeypot kit.
+#
+# Copyright George Bakos - alpinista@bigfoot.com
+# July 29, 2002
+# This is free software, released under the terms of the GNU General 
+# Public License avaiable at http://www.fsf.org/licenses/gpl.txt
+
+$thpdir="/usr/local/thp";
+$svcname = $ARGV[0];
+$procid = $$;
+$ENV{'PATH'} = '/bin:/usr/bin:/sbin:/usr/sbin';
+delete @ENV{'IFS', 'CDPATH', 'ENV', 'BASH_ENV'};
+@nsdata = split(" ",`netstat -tnp 2>/dev/null | grep $procid/perl`);
+($saddr, $sport) = split /:/,$nsdata[4];
+
+do "$thpdir/thp.conf";
+foreach $file (<$thpdir/lib/*.pl>) {
+    do "$file";
+}
+
+alarm $timeout;
+
+use POSIX qw(strftime);
+
+if ($allowftpdata == "0") {
+	$thpaddr="127.0.0.1";
+} elsif (!"$thpaddr") {
+	$thpaddr = getip();
+}
+
+open(CAPLOG, ">>$logfile");
+opncaplog();
+
+
+# Redirect STDOUT to lessen the liklihood of an attacker fooling thp into
+# returning something useful to him. 
+
+open(NEWOUT, ">/dev/null") || die;
+*STDOUT = *NEWOUT;
+
+if (!"$svcname") {
+  nullresp();
+} elsif ($svcname =~ /shell|ftp|http|mssql|smtp|pop3/) {
+  &$svcname();
+} else {
+  nullresp();
+}
+
+close NEWOUT;
+
+clcaplog();
+close(CAPLOG);

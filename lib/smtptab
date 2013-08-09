@@ -1,0 +1,26 @@
+# The following state table is used to match intruder input against three 
+# parameter sets: current state, command issued & a regex against the content.
+# Every line of input is compared to the entries in this table in order, until
+# the first match is made. If the rule contains a "y" in the "continue?" field,
+# subsequent matches will also be processed, until a "continue? = n" is 
+# encountered. Entries are to be separated by a single TAB character. The 
+# "response" entry can be a function w/args (err404()), hash key ($smtp{ehlo}),
+# or null ("").
+# WARNING:
+# If you choose to do silly things here, you can jeopardize the security of
+# the host. The subroutines I have included have been given alot of (enough?)
+# scrutiny, and seem ok. Other functions ( i.e. system("stupid stuff") ) may 
+# result in system compromise or loss of data.
+
+# state	Command	regex newstate continue? response assignment(s)
+# -----	-------	----- -------- --------- -------- -------------
+new	HELO	/^helo .{256,}/i	new	n	$smtp{err501}
+new	EHLO	/^ehlo .{256,}/i	new	n	$smtp{err501}
+new	HELO	/^helo [[:alnum:]\.-]	fwait	n	$smtp{helo}	$dom = $commands[1]
+new	EHLO	/^ehlo [[:alnum:]\.-]	fwait	n	$smtp{ehlo}	$dom = $commands[1]
+fwait	HELO	/^helo /	fwait	n	$smtp{err503}
+fwait	MAIL FROM:	/^mail from: .{256,}/i	fwait	n	$smtp{err553}
+fwait	MAIL FROM:	/^mail from: [[:alnum:]]+\x40[[:alnum:]]+/i	fwait	$smtp{mail}	$rpath = $commands[2]
+
+
+data	.	/^\.$/	fwait	n	$smtp{qwait}	

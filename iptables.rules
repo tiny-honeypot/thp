@@ -1,0 +1,283 @@
+#!/bin/bash
+#
+# /usr/local/thp/iptables.rules version 0.4.5
+#
+# Copyright George Bakos - alpinista@bigfoot.com
+# Feb 7, 2003
+# This is free software, released under the terms of the GNU General 
+# Public License avaiable at http://www.fsf.org/licenses/gpl.txt
+#
+# iptables rules to support the thp logthis script.  All incoming connect 
+# requests that don't have a dedicated listenerget redirected to a single
+# listening port, where the script will log all activity.
+#
+# Be sure to load the appropriate modules so that all of the goodies in
+# here work.  You should customize this to your needs, including whatever
+# you want to allow legitimate outgoing and return traffic. NEVER trust
+# someone elses script to defend your perimiter, unless you've gone over
+# it with a fine toothed comb, or paid them the big shekles and can file a 
+# healthy lawsuit when it breaks. Isn't risk transferance great, ISSOs?
+#
+# DISCLAIMER
+# This is a neat toy.  That's all it is.  You can learn from your toys
+# if you use them responsibly, or you can leave them lying around on 
+# the floor, trip on them, and break your neck. Don't come crying to me
+# because you thought my toys didn't break.  That's stupid. When it breaks,
+# grab a little glue and fix it, or throw it away; I don't give a shit.
+# Have fun, learn something, help others learn, but don't whine because
+# you were told that this was foolproof.  It isn't.  Fools will always
+# provide the proof.
+
+# The interface attached to the big bad world
+#
+EXTIF="eth0"
+
+# The trusted internal interface 
+# WARNING! This setting will allow all traffic from this interface to be
+# trusted. It is highly advised that you also define a trusted internal
+# network below, that will then limit your exposure.
+#
+# INTIF="eth0"
+# INTNET=
+
+# The following two variables will determine whether or not to allow certain
+# incoming traffic to avoid redirection to the honeypot.  If either of them is 
+# uncommented, traffic that matches will be passed on to the INPUT chain 
+# intact. If both of them are uncommented, then both parameters must be matched
+# in order to be passed.
+
+# Trusted external net.  Change this to the CIDR block of any network that
+# is authorized to used the GOOD_SVCS, defined below. Comment this out if you 
+# don't want to use any.
+#
+GOODNET="192.168.1.0/24"
+
+# Available legitimate services. Comment this out if you don't want to use any.
+#
+GOOD_SVCS="80,22"
+
+# Comma separated list of ports that you have custom tcp listeners hanging out. 
+# Comment this out if you don't want to use any.
+#
+HPOT_TCP_SVCS="21,80"
+
+# If responding to passive mode ftp LIST and RETR commands, this is the port 
+# that you will make the content available on. Not yet fully implemented.
+#
+HPOT_PASV="33701"
+
+# HPOT_UDP_SVCS= not yet implemented.
+
+# Do you want to handle portmap queries? Be sure to run the daemon and populate
+# it with the pmap_set command described in the README
+#
+PORTMAP="yes"
+
+# What port is your xinetd catchall listener bound to?
+#
+REDIRPORT="6635"
+
+# Change this to your iptables binary location
+#
+IPTCMD="/sbin/iptables"
+
+# If you want nice verbose loggging, fatten this up as you see fit
+#
+LOGOPT="--log-tcp-options --log-ip-options"
+
+###################################################################
+# End of variables section. You shouldn't need to change anything
+# below this point unless you are customizing the firewall behavior
+###################################################################
+
+# Section 0 - Preparation
+# 0.1
+# Check to see of the machine is a router. If so, exit this script.
+#
+if [ $( cat /proc/sys/net/ipv4/ip_forward) -eq 1 ]
+ then echo "Oops, /proc/sys/net/ipv4/ip_forward == 1!"
+ echo "Sorry, this machine appears to be a router. Please edit this"
+ echo "script a little more carefully, or better yet, write your own"
+ echo "based on the concepts herein."
+ exit 1
+fi
+
+# 0.2
+# Flush existing chains & delete user-defines before creating new ones.
+#
+$IPTCMD -F
+$IPTCMD -F -t nat
+$IPTCMD -X
+$IPTCMD -X -t nat
+$IPTCMD -t nat -N thp-redir
+$IPTCMD -N evilin
+$IPTCMD -N postinput
+
+# 0.3
+# Set major policies to DROP.
+#
+$IPTCMD -P INPUT DROP
+$IPTCMD -P FORWARD DROP
+$IPTCMD -P OUTPUT DROP
+
+# Section 1 - PREROUTING
+# 1.0 
+# We don't want to redirect requests coming from the trusted external net
+# or destined for GOOD_SVCS
+#
+if [[ $GOODNET && $GOOD_SVCS ]]; then
+	$IPTCMD -t nat -A PREROUTING -i $EXTIF -p tcp\
+		 	-m multiport --dports $GOOD_SVCS -s $GOODNET -j RETURN 
+	elif [[ $GOODNET ]]; then
+		$IPTCMD -t nat -A PREROUTING -i $EXTIF -p tcp\
+		 	-s $GOODNET -j RETURN
+	elif [[ $GOOD_SVCS ]]; then
+		$IPTCMD -t nat -A PREROUTING -i $EXTIF -p tcp\
+			 -m multiport --dports $GOOD_SVCS -j RETURN
+fi
+
+# 1.1
+# 1.1.1
+# Do you want to answer portmapper
+# queries? If you wish to use the portmapper ruse, be sure to run your 
+# portmapper, then do: "pmap_set < $INSTALLDIR/etc/fakerpc"
+
+if [[ $PORTMAP = "yes" ]]; then $IPTCMD -t nat -A PREROUTING  -p tcp --dport 111 --tcp-flags FIN,SYN,RST,ACK SYN -m limit --limit 60/minute -j RETURN ; fi
+if [[ $PORTMAP = "yes" ]]; then $IPTCMD -t nat -A PREROUTING  -p udp --dport 111 -m limit --limit 60/minute -j RETURN ; fi
+
+# 1.1.2
+# Do you have a static port defined for passive ftp data transfers? Be sure to configure it in
+# thp.conf & un-disable it in xinetd.d/thp-pasv.
+
+if [[ $HPOT_PASV ]]; then $IPTCMD -t nat -A PREROUTING -i $EXTIF -p tcp --dport $HPOT_PASV -j RETURN; fi
+
+# 1.2
+# Let's limit logging, in case some twit decides to do a vertical port scan &
+# make a mess of our logs (the mess it leaves in the hpot captures log can
+# easily be cleaned out with the not-yet-ready unzero script). Speaking about
+# messes, iptables has a habit of clearing entries from the state table before 
+# the other side is satisfied, so lets make sure that we're only rediring SYNs:
+#
+$IPTCMD -t nat -A PREROUTING -i $EXTIF -p tcp --tcp-flags FIN,SYN,RST,ACK SYN -m limit --limit 60/minute -j thp-redir
+
+# 1.3
+# And the redirect.
+#
+# First we log the redirect
+
+$IPTCMD -t nat -A thp-redir -j LOG --log-prefix "HPOT_DATA: " $LOGOPT
+
+# If you have other dedicated listeners, this will keep those from being
+# redirected to the generic listener.
+#
+for hport_u in `echo -n $HPOT_UDP_SVCS|sed -e 's/,/ /g'`
+        do $IPTCMD -t nat -A thp-redir -i $EXTIF -p udp --dport $hport_u -j REDIRECT --to-port $(($hport_u + 40000))
+done
+
+for hport_t in `echo -n $HPOT_TCP_SVCS|sed -e 's/,/ /g'`
+        do $IPTCMD -t nat -A thp-redir -i $EXTIF -p tcp --dport $hport_t -j REDIRECT --to-port $(($hport_t + 40000))
+done
+
+$IPTCMD -t nat -A thp-redir -p tcp -j REDIRECT --to-ports $REDIRPORT
+
+# Section 2.0 INPUT
+# 2.1
+#
+$IPTCMD -A INPUT -i lo -j ACCEPT
+$IPTCMD -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# 2.2
+# ALlow traffic according to INTIF and INTNET.
+if [[ $INTIF && $INTNET ]]; then
+        $IPTCMD -A INPUT -i $INTIF -s $INTNET -m state --state NEW -j ACCEPT
+        elif [[ $INTIF ]]; then
+        $IPTCMD -A INPUT -i $INTIF -m state --state NEW -j ACCEPT
+fi
+
+# 2.3
+# Allow traffic according to either GOODNET and/or GOOD_SVCS.
+#
+if [[ $GOODNET && $GOOD_SVCS ]]; then
+        $IPTCMD -A INPUT -i $EXTIF -p tcp --tcp-flags FIN,SYN,RST,ACK SYN \
+                        -m multiport --dports $GOOD_SVCS -s $GOODNET -m state --state NEW -j ACCEPT
+        elif [[ $GOODNET ]]; then
+                $IPTCMD -A INPUT -i $EXTIF -p tcp --tcp-flags FIN,SYN,RST,ACK SYN\
+                        -s $GOODNET -m state --state NEW -j ACCEPT
+        elif [[ $GOOD_SVCS ]]; then
+                $IPTCMD -A INPUT -i $EXTIF -p tcp --tcp-flags FIN,SYN,RST,ACK SYN\
+                         -m multiport --dports $GOOD_SVCS -m state --state NEW -j ACCEPT
+fi
+
+# 2.4
+
+$IPTCMD -A INPUT -i $EXTIF -j evilin 
+$IPTCMD -A INPUT -j postinput 
+
+# Section 3.0 - OUTPUT
+# 3.1
+$IPTCMD -A OUTPUT -p tcp -m state --state NEW,ESTABLISHED -j ACCEPT 
+
+# 3.2 - 3.3
+# We definitely want to respond to probes that stimulate UDP or ICMP responses.
+#
+$IPTCMD -A OUTPUT -p udp -m state --state NEW,RELATED,ESTABLISHED -j ACCEPT 
+$IPTCMD -A OUTPUT -p icmp -m state --state NEW,RELATED,ESTABLISHED -j ACCEPT 
+
+# Section 4 - evilin
+# 4.1 - 4.2:
+# We shouldn't accept fragged ICMP or UDP, especially if we are running 
+# portmapper. You can get alot more restrictive here if you want.
+#
+$IPTCMD -A evilin -p udp -f -m limit -j LOG --log-prefix FRAG_UDP: $LOGOPT
+$IPTCMD -A evilin -p icmp -f -m limit -j LOG --log-prefix FRAG_ICMP: $LOGOPT
+$IPTCMD -A evilin -p udp -f -j DROP
+$IPTCMD -A evilin -p icmp -f -j DROP
+
+# 4.3
+# Existing connections are allowed to continue
+#
+$IPTCMD -A evilin -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# 4.4
+# Allow traffic that we have already REDIREDTed to HPOT_xxx_SVCS
+#
+if [[ $HPOT_UDP_SVCS ]]; then for hport_u in `echo -n $HPOT_UDP_SVCS|sed -e 's/,/ /g'`
+        do $IPTCMD -A evilin -p udp --dport $(($hport_u + 40000)) -j ACCEPT
+done
+fi
+if [[ $HPOT_TCP_SVCS ]]; then for hport_t in `echo -n $HPOT_TCP_SVCS|sed -e 's/,/ /g'`
+        do $IPTCMD -A evilin -p tcp --dport $(($hport_t + 40000)) -j ACCEPT
+done
+fi
+
+# 4.5
+# Allow traffic that we have already REDIRECTed to $REDIRPORT (the catchall)
+#
+$IPTCMD -A evilin -p tcp -m tcp --dport $REDIRPORT -j ACCEPT 
+
+# 4.6
+# Is portmap allowed?
+#
+if [[ $PORTMAP = "yes" ]]; then $IPTCMD -A evilin -p tcp --dport 111 -j ACCEPT ; fi
+if [[ $PORTMAP = "yes" ]]; then $IPTCMD -A evilin -p udp --dport 111 -j ACCEPT ; fi
+
+# 4.7
+# Accept traffic to the static PASV port
+if [[ $HPOT_PASV ]]; then $IPTCMD -A evilin -p tcp --dport $HPOT_PASV -j ACCEPT ; fi
+
+# Section 6 - postinput
+# Actions to take whenever something falls completely off of the INPUT chain.
+#
+# 6.1 - 6.2
+# Remember the log limiting above? Here we deal with lingering crap from old
+# connections, while still logging enough to see things like RST and FIN scans.
+#
+$IPTCMD -A postinput -p tcp -m tcp --tcp-flags FIN,SYN,RST RST -m limit --limit 8/hour -j LOG --log-prefix "BADTHINGS_IN-limit:" $LOGOPT
+$IPTCMD -A postinput -p tcp -m tcp --tcp-flags FIN,SYN,ACK FIN,ACK -m limit --limit 8/hour -j LOG --log-prefix "BADTHINGS_IN-limit:" $LOGOPT
+
+# 6.3 - 6.4
+# Everything remaining gets dealt with here. This includes non-fragmented UDP 
+# and ICMP attack traffic.
+#
+$IPTCMD -A postinput -j LOG --log-prefix "BADTHINGS_IN:" $LOGOPT
+$IPTCMD -A postinput -j DROP
